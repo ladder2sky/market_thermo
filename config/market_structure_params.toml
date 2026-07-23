@@ -1,0 +1,139 @@
+# 市场结构分析参数
+
+[data]
+# 首次建库或补历史时的起始日期。
+start_date = "20200101"
+
+# 默认分析日期；运行时可通过 --date 覆盖。
+analyse_date = "20260722"
+
+# RPS 计算窗口，单位为交易日。
+lookback_days = 20
+
+# 拥挤度历史分位窗口，单位为交易日。
+crowded_window = 120
+
+# 历史样本少于该值时，拥挤度退回简化估算。
+min_history_for_percentile = 20
+
+# 申万行业日线按交易日分块抓取，避免单次返回行数过多。
+sw_daily_chunk_trading_days = 100
+
+# 交易日历交易所参数。
+trade_calendar_exchange = "SSE"
+
+[storage]
+# SQLite 数据库文件路径，使用项目根目录相对路径。
+db_path = "data/market_structure.db"
+
+# 日志文件路径。
+log_path = "logs/market_structure.log"
+
+# 结果输出目录。
+output_dir = "outputs"
+
+# CSV 结果文件名。
+csv_filename = "市场结构分析结果.csv"
+
+# JSON 结果文件名。
+json_filename = "市场结构分析结果.json"
+
+[retry]
+# Tushare 接口失败时的最大重试次数。
+max_attempts = 3
+
+# 每次重试前的等待秒数。
+sleep_seconds = 1.5
+
+[logging]
+# 日志级别，可选 INFO / DEBUG。
+level = "INFO"
+
+[output]
+# 是否输出 CSV 结果。
+write_csv = true
+
+# 是否输出 JSON 结果。
+write_json = true
+
+# 是否输出图表。
+write_charts = true
+
+# RPS 柱状图文件名。
+rps_chart_filename = "市场结构RPS柱状图.png"
+
+# RPS 与拥挤度四象限图文件名。
+quadrant_chart_filename = "市场结构四象限图.png"
+
+# 市场结构时间序列图文件名。
+timeseries_chart_filename = "市场结构时间序列图.png"
+
+[crowded_model]
+# 成交额占比历史分位权重。
+amount_ratio_weight = 0.6
+
+# 换手率历史分位权重。
+turnover_rate_weight = 0.4
+
+[state_model]
+# 市场状态动态阈值回看窗口，单位为交易日。
+history_window = 252
+
+# 计算动态阈值时，最少需要的历史样本数。
+min_history = 60
+
+# 认定“强势行业”的 RPS 阈值。
+strong_rps_threshold = 80
+
+# 主线清晰时，强势行业比例至少位于历史多少分位。
+healthy_strong_quantile = 0.7
+
+# 主线清晰时，轮动频率最多位于历史多少分位。
+healthy_rotation_quantile = 0.4
+
+# 主线清晰时，最高拥挤度最多位于历史多少分位。
+healthy_crowded_quantile = 0.65
+
+# 快速轮动时，强势行业比例最多位于历史多少分位。
+chaos_strong_quantile = 0.3
+
+# 快速轮动时，轮动频率至少位于历史多少分位。
+chaos_rotation_quantile = 0.7
+
+# 主线过热时，强势行业比例至少位于历史多少分位。
+risk_strong_quantile = 0.8
+
+# 主线过热时，最高拥挤度至少位于历史多少分位。
+risk_crowded_quantile = 0.8
+
+[industry_groups]
+# 以下映射保持原脚本的 28 个一级行业口径。
+# 其中 2021 版申万行业拆分出的板块，按资金成交额加权合并回旧口径。
+"农林牧渔" = ["农林牧渔"]
+"采掘" = ["煤炭", "石油石化"]
+"化工" = ["基础化工"]
+"钢铁" = ["钢铁"]
+"有色金属" = ["有色金属"]
+"电子" = ["电子"]
+"家用电器" = ["家用电器"]
+"食品饮料" = ["食品饮料"]
+"纺织服装" = ["纺织服饰"]
+"轻工制造" = ["轻工制造"]
+"医药生物" = ["医药生物"]
+"公用事业" = ["公用事业", "环保"]
+"交通运输" = ["交通运输"]
+"房地产" = ["房地产"]
+"商业贸易" = ["商贸零售"]
+"休闲服务" = ["社会服务"]
+"综合" = ["综合"]
+"建筑材料" = ["建筑材料"]
+"建筑装饰" = ["建筑装饰"]
+"电气设备" = ["电力设备"]
+"国防军工" = ["国防军工"]
+"计算机" = ["计算机"]
+"传媒" = ["传媒"]
+"通信" = ["通信"]
+"银行" = ["银行"]
+"非银金融" = ["非银金融"]
+"汽车" = ["汽车"]
+"机械设备" = ["机械设备"]

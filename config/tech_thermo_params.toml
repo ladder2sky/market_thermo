@@ -1,0 +1,58 @@
+# 技术广度温度计参数文件
+# 修改本文件后，重新运行:
+# python .\bin\tech_thermo.py --start 20240101 --end 20260708
+
+[high_low]
+# 创新高/创新低统计回看窗口，252 约等于 1 个交易年
+lookback_days = 252
+
+# 将累积新高-新低线映射为 0-100 历史位置时使用的滚动窗口
+# 756 约等于 3 个交易年，更适合中期冷暖观察
+norm_window_days = 756
+
+# 滚动分位最少样本数，不足时先不输出归一化值
+norm_min_periods = 150
+
+# 判定“接近 52 周新高/新低”的容忍比例
+# 0.999 表示收盘价达到 99.9% 的 52 周高点也计为创新高
+new_high_tolerance = 0.999
+new_low_tolerance = 1.001
+
+[mcclellan]
+# 麦克莱伦震荡指标使用的快慢 EMA 周期
+# 当前用更慢的 39/78，更适合中长期顶底分析
+fast_ema_span = 128
+slow_ema_span = 256
+
+# 图中冷热阈值使用历史分位，而不是写死固定数值
+# 例如 0.90 表示过去样本的 90% 分位，作为“偏热”参考线
+hot_quantile = 0.90
+cold_quantile = 0.10
+
+[arms]
+# 阿姆氏原始值去极值分位，避免单日极端值压扁整张图
+clip_quantile_low = 0.02
+clip_quantile_high = 0.98
+
+# 阿姆氏冷热判断基于均线而不是原始值
+# ma_window 越大，图形越平滑，也越偏中期
+ma_window = 60
+ma_min_periods = 30
+
+# 阿姆氏均线的冷热阈值，也用其自身历史分位来定义
+# 由于 ARMS 越高越冷，所以 cold_quantile 应高于 hot_quantile
+hot_quantile = 0.10
+cold_quantile = 0.9
+
+# 图上保留的中性参考线，经典 TRIN 中性值一般取 1.0
+neutral_value = 1.0
+
+# 图形展示时的 y 轴范围，也按去极值后的分位确定
+display_y_low_quantile = 0.02
+display_y_high_quantile = 0.98
+
+[scoring.weights]
+# 三个技术广度子指标的综合打分权重
+cum_diff = 0.40
+mcclellan = 0.35
+arms = 0.25

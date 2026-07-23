@@ -1,0 +1,54 @@
+# 资金维度温度计参数文件
+# 说明：
+# 1. 本文件统一管理资金维度脚本的起始日期、分段抓取天数、周度平滑周期、权重与信号阈值。
+# 2. 修改参数后，重新运行 money_thermo.py 即会按新的口径计算。
+
+[data]
+# 历史分析默认起始日期，格式 YYYYMMDD
+start_date = "20150101"
+
+# Tushare 分段抓取的单段天数。
+# `stk_holdertrade` 和 `repurchase` 历史数据较长时，建议按区间拆分抓取。
+chunk_days = 180
+
+# 纳入统计的股东类型。
+# C=公司，P=个人，G=高管。
+include_holder_types = ["C", "P", "G"]
+
+[score]
+# 综合得分中的“金额口径”权重。
+amount_weight = 0.4
+
+# 综合得分中的“笔数口径”权重。
+count_weight = 0.3
+
+# 综合得分中的“公司回购口径”权重。
+repurchase_weight = 0.3
+
+[weekly]
+# 周度平滑窗口，单位为周。
+ma_window = 4
+
+# 计算周均线时最少有效样本数。
+ma_min_periods = 1
+
+[threshold]
+# 增减持比（增持 / 减持）的打分阈值。
+extreme_positive = 2.0
+positive = 1.5
+neutral = 1.0
+weak_negative = 0.7
+negative = 0.3
+
+[signal]
+# 强积极 / 强消极信号阈值。
+strong_positive_score = 70
+strong_negative_score = 30
+
+[repurchase]
+# 是否纳入公司回购子指标。
+enabled = true
+
+# 纳入统计的回购进度。
+# 推荐只保留真正落地的“实施”和“完成”。
+include_proc = ["实施", "完成"]

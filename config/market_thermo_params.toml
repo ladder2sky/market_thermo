@@ -1,0 +1,51 @@
+# 综合市场温度计参数文件
+# 说明：
+# 1. 该脚本将价值、情绪、资金、技术四个维度按固定权重合成为总分。
+# 2. `--start/--end` 指定的是本次分析区间，部分维度会自动向前补历史数据以保证滚动分位更稳定。
+
+[data]
+# 价值维度建议尽量使用长历史，以保持股债收益差与 PE 分位更稳定。
+value_history_start = "20100101"
+
+# 情绪、资金、技术维度内部涉及滚动窗口，会在用户指定 start 的基础上自动向前补历史。
+emotion_min_history_start = "20150101"
+money_min_history_start = "20150101"
+tech_min_history_start = "20100101"
+
+# 向前补足的历史缓冲年数。
+history_buffer_years = 3
+
+[weights]
+# 四个维度的总分权重，应合计为 1.0。
+value = 0.40
+emotion = 0.25
+money = 0.20
+tech = 0.15
+
+[anchor]
+# “价值锚定温度”采用价值主导的中期判断口径。
+# 价值作为主锚，资金作为第一确认，情绪和技术只做辅助确认。
+value = 0.70
+money = 0.15
+emotion = 0.10
+tech = 0.05
+
+[value]
+# 价值维度内部，股债收益差分位权重更高，PE 分位作为估值交叉验证。
+spread_weight = 0.70
+pe_weight = 0.30
+
+[plot_thresholds.timeseries_main]
+# 时间序列分析图第一张主图的冷热阈值。
+cold = 20
+hot = 70
+
+[plot_thresholds.timeseries_dimensions]
+# 时间序列分析图第二张四维曲线的冷热阈值。
+cold = 20
+hot = 80
+
+[plot_thresholds.dashboard]
+# 综合面板图中的冷热阈值。
+cold = 20
+hot = 80

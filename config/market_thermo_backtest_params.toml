@@ -1,0 +1,49 @@
+# 市场温度有效性检验参数
+# 说明：
+# 1. 本脚本默认读取 market_thermo.py 导出的“市场温度时间序列.csv”
+# 2. 通过不同持有期、不同阈值、不同指数，检验温度分数是否具备解释力
+
+[data]
+# 默认输入文件。若命令行传入 --input，则以命令行为准。
+input_csv = "outputs/市场温度时间序列.csv"
+
+[analysis]
+# 需要检验的温度分数列。
+score_columns = ["composite_score", "anchor_score"]
+
+# 需要验证的指数收盘价列。
+index_columns = ["hs300_close", "cyb_close"]
+
+# 前瞻持有期（交易日）。
+forward_days = [20, 60, 120]
+
+# 分组数量。10 表示按十分位分组。
+group_count = 10
+
+[thresholds]
+# 绝对分数阈值，用来检验 20/80、30/70 是否过严。
+absolute_low = [20, 30]
+absolute_high = [70, 80]
+
+# 历史分位阈值，用来检验“按样本分位切分”是否更稳。
+# 例如 0.1 表示全样本最低 10% 的低温区。
+quantile_low = [0.1, 0.2]
+quantile_high = [0.8, 0.9]
+
+[signals]
+# 事件去重窗口。0 表示默认使用对应持有期天数做去重。
+cooldown_days = 0
+
+[event_path]
+# 事件路径图默认展示哪些指数、多少期、哪些典型阈值。
+index_columns = ["hs300_close", "cyb_close"]
+path_days = 120
+score_columns = ["composite_score", "anchor_score"]
+absolute_low = [30]
+absolute_high = [70]
+quantile_low = [0.1]
+quantile_high = [0.9]
+
+[plot]
+# 统计图默认展示哪个持有期。
+display_horizon = 60
