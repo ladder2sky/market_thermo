@@ -14,6 +14,7 @@ import matplotlib
 import numpy as np
 import pandas as pd
 import tushare as ts
+import matplotlib.dates as mdates
 from matplotlib import pyplot as plt
 
 warnings.filterwarnings('ignore')
@@ -720,7 +721,6 @@ def build_daily_state_metrics(feature_history_df, config):
         return pd.DataFrame()
 
     state_config = config['state_model']
-    strong_rps_threshold = state_config['strong_rps_threshold']
     history_window = state_config['history_window']
     min_history = state_config['min_history']
 
@@ -730,7 +730,7 @@ def build_daily_state_metrics(feature_history_df, config):
         rows.append(
             {
                 'trade_date': trade_date,
-                'strong_ratio': float((group['RPS'] > strong_rps_threshold).mean() * 100),
+                'strong_ratio': compute_strong_ratio(group, config),
                 'rotation_score': float(min(100, ret_series.std() / (ret_series.abs().mean() + 1e-6) * 40)),
                 'avg_crowded': float(group['crowded_percentile'].mean()),
                 'max_crowded': float(group['crowded_percentile'].max()),
@@ -964,6 +964,34 @@ def add_chart_labels(ax, bars, values, text_format='{:.1f}', rotation=0):
         )
 
 
+def compute_strong_ratio(group, config):
+    """
+    计算强势行业比例。
+
+    说明：
+    - 如果只基于截面百分位 RPS（例如 >80）定义强势行业，则强势比例会天然锁定在约 20%，不适合做时间序列。
+    - 默认采用 hybrid：同时满足“RPS 足够靠前” + “绝对收益率为正且达到阈值”，更能反映主线扩散与收缩。
+    """
+    state_config = config['state_model']
+    mode = str(state_config.get('strong_ratio_mode', 'hybrid')).lower()
+    rps_threshold = float(state_config.get('strong_ratio_rps_threshold', 60))
+    ret_threshold = float(state_config.get('strong_ratio_ret_threshold', 0.03))
+
+    rps_series = group['RPS']
+    ret_series = group['ret_20d']
+
+    if mode == 'rps':
+        mask = rps_series > rps_threshold
+    elif mode == 'ret':
+        mask = ret_series > ret_threshold
+    elif mode == 'hybrid':
+        mask = (rps_series > rps_threshold) & (ret_series > ret_threshold)
+    else:
+        raise ValueError(f'未知强势比例模式: {mode}，可选 rps / ret / hybrid')
+
+    return float(mask.fillna(False).mean() * 100)
+
+
 def generate_structure_charts(result_df, state_info, config, trade_date, logger):
     """
     生成行业 RPS 柱状图和 RPS-拥挤度四象限图。
@@ -976,12 +1004,13 @@ def generate_structure_charts(result_df, state_info, config, trade_date, logger)
     generated_paths = []
 
     plot_df = result_df.sort_values('RPS', ascending=True).copy()
-    colors = np.where(plot_df['RPS'] >= 80, '#d62728', '#4c78a8')
+    rps_strong_threshold = float(config['state_model'].get('strong_rps_threshold', 80))
+    colors = np.where(plot_df['RPS'] >= rps_strong_threshold, '#d62728', '#4c78a8')
     rps_chart_path = output_dir / config['output']['rps_chart_filename']
 
     fig, ax = plt.subplots(figsize=(12, 10))
     bars = ax.barh(plot_df['industry'], plot_df['RPS'], color=colors, alpha=0.9)
-    ax.axvline(80, color='red', linestyle='--', linewidth=1, label='强势阈值 RPS=80')
+    ax.axvline(rps_strong_threshold, color='red', linestyle='--', linewidth=1, label=f'强势阈值 RPS={rps_strong_threshold:g}')
     ax.axvline(50, color='gray', linestyle=':', linewidth=1, alpha=0.7)
     ax.set_title(f'市场结构行业 RPS 排名 ({trade_date})', fontsize=15)
     ax.set_xlabel('RPS')
@@ -1043,6 +1072,32 @@ def generate_structure_charts(result_df, state_info, config, trade_date, logger)
     return generated_paths
 
 
+def compute_robust_ylim(*series_list, lower_quantile=0.05, upper_quantile=0.98, padding_ratio=0.12, minimum_padding=2.0):
+    """
+    基于分位数估算更稳健的纵轴范围，避免早期极端值把主区间压得过窄。
+    """
+    values = []
+    for series in series_list:
+        cleaned = pd.Series(series).dropna().astype(float)
+        if not cleaned.empty:
+            values.extend(cleaned.tolist())
+
+    if not values:
+        return None
+
+    value_series = pd.Series(values, dtype=float)
+    lower = float(value_series.quantile(lower_quantile))
+    upper = float(value_series.quantile(upper_quantile))
+
+    if np.isclose(lower, upper):
+        padding = max(abs(lower) * padding_ratio, minimum_padding)
+        return lower - padding, upper + padding
+
+    span = upper - lower
+    padding = max(span * padding_ratio, minimum_padding)
+    return lower - padding, upper + padding
+
+
 def generate_structure_timeseries_chart(daily_state_df, trade_date, config, logger):
     """
     绘制市场结构时间序列图，展示主线强度、轮动频率与拥挤度的历史演变。
@@ -1061,26 +1116,35 @@ def generate_structure_timeseries_chart(daily_state_df, trade_date, config, logg
     latest_date = latest_row['trade_date']
 
     fig, axes = plt.subplots(3, 1, figsize=(16, 12), sharex=True)
+    year_locator = mdates.YearLocator()
+    year_formatter = mdates.DateFormatter('%Y')
 
     axes[0].plot(plot_df['trade_date'], plot_df['strong_ratio'], color='#d62728', linewidth=1.6, label='强势行业比例')
     axes[0].plot(
         plot_df['trade_date'],
         plot_df['healthy_strong_threshold'],
-        color='#ff9896',
+        color='#2ca02c',
         linestyle='--',
-        linewidth=1.0,
+        linewidth=1.2,
         label='健康阈值',
     )
     axes[0].plot(
         plot_df['trade_date'],
         plot_df['risk_strong_threshold'],
-        color='#7f0000',
-        linestyle=':',
-        linewidth=1.0,
+        color='#9467bd',
+        linestyle='-.',
+        linewidth=1.2,
         label='过热阈值',
     )
     axes[0].scatter(latest_date, latest_row['strong_ratio'], color='#d62728', s=60, zorder=5)
     axes[0].set_ylabel('强势比例(%)')
+    strong_ylim = compute_robust_ylim(
+        plot_df['strong_ratio'],
+        plot_df['healthy_strong_threshold'],
+        plot_df['risk_strong_threshold'],
+    )
+    if strong_ylim:
+        axes[0].set_ylim(max(0, strong_ylim[0]), min(100, strong_ylim[1]))
     axes[0].set_title('市场结构时间序列图', fontsize=16)
     axes[0].grid(alpha=0.2, linestyle='--')
     axes[0].legend(loc='upper left')
@@ -1089,57 +1153,83 @@ def generate_structure_timeseries_chart(daily_state_df, trade_date, config, logg
     axes[1].plot(
         plot_df['trade_date'],
         plot_df['healthy_rotation_threshold'],
-        color='#9ecae1',
+        color='#2ca02c',
         linestyle='--',
-        linewidth=1.0,
+        linewidth=1.2,
         label='健康阈值',
     )
     axes[1].plot(
         plot_df['trade_date'],
         plot_df['chaos_rotation_threshold'],
-        color='#08519c',
-        linestyle=':',
-        linewidth=1.0,
+        color='#ff7f0e',
+        linestyle='-.',
+        linewidth=1.2,
         label='混沌阈值',
     )
     axes[1].scatter(latest_date, latest_row['rotation_score'], color='#1f77b4', s=60, zorder=5)
     axes[1].set_ylabel('轮动评分')
+    rotation_ylim = compute_robust_ylim(
+        plot_df['rotation_score'],
+        plot_df['healthy_rotation_threshold'],
+        plot_df['chaos_rotation_threshold'],
+    )
+    if rotation_ylim:
+        axes[1].set_ylim(max(0, rotation_ylim[0]), min(100, rotation_ylim[1]))
     axes[1].grid(alpha=0.2, linestyle='--')
     axes[1].legend(loc='upper left')
 
-    axes[2].plot(plot_df['trade_date'], plot_df['avg_crowded'], color='#2ca02c', linewidth=1.5, label='平均拥挤度')
-    axes[2].plot(plot_df['trade_date'], plot_df['max_crowded'], color='#9467bd', linewidth=1.3, label='最高拥挤度')
-    axes[2].plot(
+    axes[2].plot(plot_df['trade_date'], plot_df['avg_crowded'], color='#2ca02c', linewidth=1.5, label='平均拥挤度(左轴)')
+    axes[2].scatter(latest_date, latest_row['avg_crowded'], color='#2ca02c', s=50, zorder=5)
+    axes[2].set_ylabel('平均拥挤度分位')
+    avg_crowded_ylim = compute_robust_ylim(plot_df['avg_crowded'])
+    if avg_crowded_ylim:
+        axes[2].set_ylim(max(0, avg_crowded_ylim[0]), min(100, avg_crowded_ylim[1]))
+    axes[2].grid(alpha=0.2, linestyle='--')
+
+    crowded_axis = axes[2].twinx()
+    crowded_axis.plot(plot_df['trade_date'], plot_df['max_crowded'], color='#9467bd', linewidth=1.3, label='最高拥挤度(右轴)')
+    crowded_axis.plot(
         plot_df['trade_date'],
         plot_df['healthy_crowded_threshold'],
-        color='#98df8a',
+        color='#2ca02c',
         linestyle='--',
-        linewidth=1.0,
-        label='健康阈值',
+        linewidth=1.2,
+        label='健康阈值(基于最高拥挤度)',
     )
-    axes[2].plot(
+    crowded_axis.plot(
         plot_df['trade_date'],
         plot_df['risk_crowded_threshold'],
-        color='#6a3d9a',
-        linestyle=':',
-        linewidth=1.0,
-        label='过热阈值',
+        color='#d62728',
+        linestyle='-.',
+        linewidth=1.2,
+        label='过热阈值(基于最高拥挤度)',
     )
-    axes[2].scatter(latest_date, latest_row['avg_crowded'], color='#2ca02c', s=50, zorder=5)
-    axes[2].scatter(latest_date, latest_row['max_crowded'], color='#9467bd', s=50, zorder=5)
-    axes[2].set_ylabel('拥挤度分位')
+    crowded_axis.scatter(latest_date, latest_row['max_crowded'], color='#9467bd', s=50, zorder=5)
+    crowded_axis.set_ylabel('最高拥挤度分位 / 阈值')
+    crowded_ylim = compute_robust_ylim(
+        plot_df['max_crowded'],
+        plot_df['healthy_crowded_threshold'],
+        plot_df['risk_crowded_threshold'],
+    )
+    if crowded_ylim:
+        crowded_axis.set_ylim(max(0, crowded_ylim[0]), min(100, crowded_ylim[1]))
     axes[2].set_xlabel('时间')
-    axes[2].grid(alpha=0.2, linestyle='--')
-    axes[2].legend(loc='upper left', ncol=2)
+    left_handles, left_labels = axes[2].get_legend_handles_labels()
+    right_handles, right_labels = crowded_axis.get_legend_handles_labels()
+    crowded_axis.legend(left_handles + right_handles, left_labels + right_labels, loc='upper left', ncol=2)
 
     for ax in axes:
         ax.axvline(latest_date, color='gray', linestyle='--', linewidth=0.8, alpha=0.6)
         ax.tick_params(axis='x', rotation=0)
+        ax.xaxis.set_major_locator(year_locator)
+        ax.xaxis.set_major_formatter(year_formatter)
+
+    crowded_axis.axvline(latest_date, color='gray', linestyle='--', linewidth=0.8, alpha=0.6)
 
     axes[0].text(
         0.01,
         0.92,
-        f'最新状态: {latest_row.get("trade_date").strftime("%Y-%m-%d")} / 强势 {latest_row["strong_ratio"]:.2f}% / 轮动 {latest_row["rotation_score"]:.2f} / 最高拥挤 {latest_row["max_crowded"]:.2f}',
+        f'最新状态: {latest_row.get("trade_date").strftime("%Y-%m-%d")} / 强势 {latest_row["strong_ratio"]:.2f}% / 轮动 {latest_row["rotation_score"]:.2f} / 平均拥挤 {latest_row["avg_crowded"]:.2f} / 最高拥挤 {latest_row["max_crowded"]:.2f}',
         transform=axes[0].transAxes,
         fontsize=10,
         bbox={'facecolor': 'white', 'alpha': 0.7, 'edgecolor': 'none'},

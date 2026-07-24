@@ -82,8 +82,17 @@ history_window = 252
 # 计算动态阈值时，最少需要的历史样本数。
 min_history = 60
 
-# 认定“强势行业”的 RPS 阈值。
+# 认定“强势行业”的 RPS 阈值（用于 RPS 图表与榜单高亮）。
 strong_rps_threshold = 80
+
+# 强势比例计算方式：rps / ret / hybrid。
+strong_ratio_mode = "hybrid"
+
+# 强势比例（hybrid / ret）所需的绝对收益率阈值，例如 0.03 表示 20 日收益率大于 3%。
+strong_ratio_ret_threshold = 0.03
+
+# 强势比例（hybrid / rps）所需的 RPS 阈值。
+strong_ratio_rps_threshold = 60
 
 # 主线清晰时，强势行业比例至少位于历史多少分位。
 healthy_strong_quantile = 0.7
