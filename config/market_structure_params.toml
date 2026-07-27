@@ -68,6 +68,13 @@ quadrant_chart_filename = "市场结构四象限图.png"
 # 市场结构时间序列图文件名。
 timeseries_chart_filename = "市场结构时间序列图.png"
 
+[plot_model]
+# 时间序列主指标的滚动平滑窗口，单位为交易日。
+metric_smoothing_window = 20
+
+# 时间序列阈值线的滚动平滑窗口，单位为交易日。
+threshold_smoothing_window = 30
+
 [crowded_model]
 # 成交额占比历史分位权重。
 amount_ratio_weight = 0.6

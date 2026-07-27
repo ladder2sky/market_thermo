@@ -55,6 +55,10 @@ DEFAULT_CONFIG = {
         'quadrant_chart_filename': '市场结构四象限图.png',
         'timeseries_chart_filename': '市场结构时间序列图.png',
     },
+    'plot_model': {
+        'metric_smoothing_window': 20,
+        'threshold_smoothing_window': 30,
+    },
     'crowded_model': {
         'amount_ratio_weight': 0.6,
         'turnover_rate_weight': 0.4,
@@ -1098,6 +1102,17 @@ def compute_robust_ylim(*series_list, lower_quantile=0.05, upper_quantile=0.98, 
     return lower - padding, upper + padding
 
 
+def smooth_plot_series(series, window):
+    """
+    对绘图序列做滚动平滑，降低高频噪音，提升时间序列可读性。
+    """
+    window = max(int(window), 1)
+    if window <= 1:
+        return pd.Series(series, copy=True)
+    min_periods = max(1, window // 3)
+    return pd.Series(series).rolling(window=window, min_periods=min_periods).mean()
+
+
 def generate_structure_timeseries_chart(daily_state_df, trade_date, config, logger):
     """
     绘制市场结构时间序列图，展示主线强度、轮动频率与拥挤度的历史演变。
@@ -1110,6 +1125,20 @@ def generate_structure_timeseries_chart(daily_state_df, trade_date, config, logg
     output_dir = resolve_project_path(config['storage']['output_dir'])
     output_dir.mkdir(parents=True, exist_ok=True)
     chart_path = output_dir / config['output']['timeseries_chart_filename']
+    plot_config = config.get('plot_model', {})
+    metric_window = int(plot_config.get('metric_smoothing_window', 20))
+    threshold_window = int(plot_config.get('threshold_smoothing_window', 30))
+
+    plot_df['strong_ratio_smooth'] = smooth_plot_series(plot_df['strong_ratio'], metric_window)
+    plot_df['rotation_score_smooth'] = smooth_plot_series(plot_df['rotation_score'], metric_window)
+    plot_df['avg_crowded_smooth'] = smooth_plot_series(plot_df['avg_crowded'], metric_window)
+    plot_df['max_crowded_smooth'] = smooth_plot_series(plot_df['max_crowded'], metric_window)
+    plot_df['healthy_strong_threshold_smooth'] = smooth_plot_series(plot_df['healthy_strong_threshold'], threshold_window)
+    plot_df['risk_strong_threshold_smooth'] = smooth_plot_series(plot_df['risk_strong_threshold'], threshold_window)
+    plot_df['healthy_rotation_threshold_smooth'] = smooth_plot_series(plot_df['healthy_rotation_threshold'], threshold_window)
+    plot_df['chaos_rotation_threshold_smooth'] = smooth_plot_series(plot_df['chaos_rotation_threshold'], threshold_window)
+    plot_df['healthy_crowded_threshold_smooth'] = smooth_plot_series(plot_df['healthy_crowded_threshold'], threshold_window)
+    plot_df['risk_crowded_threshold_smooth'] = smooth_plot_series(plot_df['risk_crowded_threshold'], threshold_window)
 
     latest_rows = plot_df[plot_df['trade_date'] == pd.to_datetime(trade_date)]
     latest_row = latest_rows.iloc[-1] if not latest_rows.empty else plot_df.iloc[-1]
@@ -1119,10 +1148,10 @@ def generate_structure_timeseries_chart(daily_state_df, trade_date, config, logg
     year_locator = mdates.YearLocator()
     year_formatter = mdates.DateFormatter('%Y')
 
-    axes[0].plot(plot_df['trade_date'], plot_df['strong_ratio'], color='#d62728', linewidth=1.6, label='强势行业比例')
+    axes[0].plot(plot_df['trade_date'], plot_df['strong_ratio_smooth'], color='#d62728', linewidth=1.8, label=f'强势行业比例({metric_window}日均线)')
     axes[0].plot(
         plot_df['trade_date'],
-        plot_df['healthy_strong_threshold'],
+        plot_df['healthy_strong_threshold_smooth'],
         color='#2ca02c',
         linestyle='--',
         linewidth=1.2,
@@ -1130,18 +1159,18 @@ def generate_structure_timeseries_chart(daily_state_df, trade_date, config, logg
     )
     axes[0].plot(
         plot_df['trade_date'],
-        plot_df['risk_strong_threshold'],
+        plot_df['risk_strong_threshold_smooth'],
         color='#9467bd',
         linestyle='-.',
         linewidth=1.2,
         label='过热阈值',
     )
-    axes[0].scatter(latest_date, latest_row['strong_ratio'], color='#d62728', s=60, zorder=5)
+    axes[0].scatter(latest_date, latest_row['strong_ratio_smooth'], color='#d62728', s=60, zorder=5)
     axes[0].set_ylabel('强势比例(%)')
     strong_ylim = compute_robust_ylim(
-        plot_df['strong_ratio'],
-        plot_df['healthy_strong_threshold'],
-        plot_df['risk_strong_threshold'],
+        plot_df['strong_ratio_smooth'],
+        plot_df['healthy_strong_threshold_smooth'],
+        plot_df['risk_strong_threshold_smooth'],
     )
     if strong_ylim:
         axes[0].set_ylim(max(0, strong_ylim[0]), min(100, strong_ylim[1]))
@@ -1149,10 +1178,10 @@ def generate_structure_timeseries_chart(daily_state_df, trade_date, config, logg
     axes[0].grid(alpha=0.2, linestyle='--')
     axes[0].legend(loc='upper left')
 
-    axes[1].plot(plot_df['trade_date'], plot_df['rotation_score'], color='#1f77b4', linewidth=1.6, label='轮动频率评分')
+    axes[1].plot(plot_df['trade_date'], plot_df['rotation_score_smooth'], color='#1f77b4', linewidth=1.8, label=f'轮动频率评分({metric_window}日均线)')
     axes[1].plot(
         plot_df['trade_date'],
-        plot_df['healthy_rotation_threshold'],
+        plot_df['healthy_rotation_threshold_smooth'],
         color='#2ca02c',
         linestyle='--',
         linewidth=1.2,
@@ -1160,37 +1189,37 @@ def generate_structure_timeseries_chart(daily_state_df, trade_date, config, logg
     )
     axes[1].plot(
         plot_df['trade_date'],
-        plot_df['chaos_rotation_threshold'],
+        plot_df['chaos_rotation_threshold_smooth'],
         color='#ff7f0e',
         linestyle='-.',
         linewidth=1.2,
         label='混沌阈值',
     )
-    axes[1].scatter(latest_date, latest_row['rotation_score'], color='#1f77b4', s=60, zorder=5)
+    axes[1].scatter(latest_date, latest_row['rotation_score_smooth'], color='#1f77b4', s=60, zorder=5)
     axes[1].set_ylabel('轮动评分')
     rotation_ylim = compute_robust_ylim(
-        plot_df['rotation_score'],
-        plot_df['healthy_rotation_threshold'],
-        plot_df['chaos_rotation_threshold'],
+        plot_df['rotation_score_smooth'],
+        plot_df['healthy_rotation_threshold_smooth'],
+        plot_df['chaos_rotation_threshold_smooth'],
     )
     if rotation_ylim:
         axes[1].set_ylim(max(0, rotation_ylim[0]), min(100, rotation_ylim[1]))
     axes[1].grid(alpha=0.2, linestyle='--')
     axes[1].legend(loc='upper left')
 
-    axes[2].plot(plot_df['trade_date'], plot_df['avg_crowded'], color='#2ca02c', linewidth=1.5, label='平均拥挤度(左轴)')
-    axes[2].scatter(latest_date, latest_row['avg_crowded'], color='#2ca02c', s=50, zorder=5)
+    axes[2].plot(plot_df['trade_date'], plot_df['avg_crowded_smooth'], color='#2ca02c', linewidth=1.7, label=f'平均拥挤度({metric_window}日均线, 左轴)')
+    axes[2].scatter(latest_date, latest_row['avg_crowded_smooth'], color='#2ca02c', s=50, zorder=5)
     axes[2].set_ylabel('平均拥挤度分位')
-    avg_crowded_ylim = compute_robust_ylim(plot_df['avg_crowded'])
+    avg_crowded_ylim = compute_robust_ylim(plot_df['avg_crowded_smooth'])
     if avg_crowded_ylim:
         axes[2].set_ylim(max(0, avg_crowded_ylim[0]), min(100, avg_crowded_ylim[1]))
     axes[2].grid(alpha=0.2, linestyle='--')
 
     crowded_axis = axes[2].twinx()
-    crowded_axis.plot(plot_df['trade_date'], plot_df['max_crowded'], color='#9467bd', linewidth=1.3, label='最高拥挤度(右轴)')
+    crowded_axis.plot(plot_df['trade_date'], plot_df['max_crowded_smooth'], color='#9467bd', linewidth=1.5, label=f'最高拥挤度({metric_window}日均线, 右轴)')
     crowded_axis.plot(
         plot_df['trade_date'],
-        plot_df['healthy_crowded_threshold'],
+        plot_df['healthy_crowded_threshold_smooth'],
         color='#2ca02c',
         linestyle='--',
         linewidth=1.2,
@@ -1198,18 +1227,18 @@ def generate_structure_timeseries_chart(daily_state_df, trade_date, config, logg
     )
     crowded_axis.plot(
         plot_df['trade_date'],
-        plot_df['risk_crowded_threshold'],
+        plot_df['risk_crowded_threshold_smooth'],
         color='#d62728',
         linestyle='-.',
         linewidth=1.2,
         label='过热阈值(基于最高拥挤度)',
     )
-    crowded_axis.scatter(latest_date, latest_row['max_crowded'], color='#9467bd', s=50, zorder=5)
+    crowded_axis.scatter(latest_date, latest_row['max_crowded_smooth'], color='#9467bd', s=50, zorder=5)
     crowded_axis.set_ylabel('最高拥挤度分位 / 阈值')
     crowded_ylim = compute_robust_ylim(
-        plot_df['max_crowded'],
-        plot_df['healthy_crowded_threshold'],
-        plot_df['risk_crowded_threshold'],
+        plot_df['max_crowded_smooth'],
+        plot_df['healthy_crowded_threshold_smooth'],
+        plot_df['risk_crowded_threshold_smooth'],
     )
     if crowded_ylim:
         crowded_axis.set_ylim(max(0, crowded_ylim[0]), min(100, crowded_ylim[1]))
@@ -1220,7 +1249,7 @@ def generate_structure_timeseries_chart(daily_state_df, trade_date, config, logg
 
     for ax in axes:
         ax.axvline(latest_date, color='gray', linestyle='--', linewidth=0.8, alpha=0.6)
-        ax.tick_params(axis='x', rotation=0)
+        ax.tick_params(axis='x', rotation=0, labelbottom=True)
         ax.xaxis.set_major_locator(year_locator)
         ax.xaxis.set_major_formatter(year_formatter)
 
