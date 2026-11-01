@@ -35,6 +35,15 @@ tech = 0.05
 spread_weight = 0.70
 pe_weight = 0.30
 
+[retry]
+# Tushare 接口重试与限流控制。
+# max_attempts: 最大尝试次数（含首次）
+# sleep_seconds: 每次重试前的等待秒数
+# chunk_sleep_seconds: 每个分段之间的等待秒数，用于控制 API 请求频率
+max_attempts = 10
+sleep_seconds = 15.0
+chunk_sleep_seconds = 1.0
+
 [plot_thresholds.timeseries_main]
 # 时间序列分析图第一张主图的冷热阈值。
 cold = 20

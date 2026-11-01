@@ -1,6 +1,8 @@
 import argparse
+import logging
 import os
 import sys
+import time
 import tomllib
 import warnings
 from datetime import datetime
@@ -127,6 +129,11 @@ DEFAULT_CONFIG = {
             'hot': 80,
         },
     },
+    'retry': {
+        'max_attempts': 3,
+        'sleep_seconds': 2.0,
+        'chunk_sleep_seconds': 1.0,
+    },
 }
 
 
@@ -151,6 +158,28 @@ def load_parameter_config(config_path=None):
         print(f'未找到综合参数文件，使用默认参数: {config_path}')
 
     return config, config_path
+
+
+def call_tushare_with_retry(func, action_name, retry_config, **kwargs):
+    """
+    带重试和休眠的 Tushare 接口调用。
+    """
+    last_error = None
+    max_attempts = retry_config['max_attempts']
+    sleep_seconds = retry_config['sleep_seconds']
+    for attempt in range(1, max_attempts + 1):
+        try:
+            result = func(**kwargs)
+            if result is not None and len(result) > 0:
+                return result
+            last_error = '返回空数据'
+        except Exception as error:
+            last_error = error
+        if attempt < max_attempts:
+            print(f'  {action_name} 失败，第 {attempt}/{max_attempts} 次重试: {last_error}；暂停 {sleep_seconds:.1f} 秒后继续')
+            time.sleep(sleep_seconds)
+    print(f'  {action_name} 最终失败，跳过: {last_error}')
+    return None
 
 
 def normalize_date_str(date_str):
@@ -198,32 +227,43 @@ def classify_temperature(score):
     return '极度沸腾'
 
 
-def get_hs300_data(start_date='20100101', end_date=None):
+def get_hs300_data(start_date='20100101', end_date=None, retry_config=None):
     """
     获取沪深300指数的 PE_TTM 和收盘价。
     """
     if end_date is None:
         end_date = datetime.now().strftime('%Y%m%d')
+    if retry_config is None:
+        retry_config = {'max_attempts': 3, 'sleep_seconds': 2.0, 'chunk_sleep_seconds': 1.0}
 
     pe_frames = []
     price_frames = []
     for chunk_start, chunk_end in daterange_chunks(start_date, end_date, chunk_days=365):
-        df_pe_chunk = pro.index_dailybasic(
+        df_pe_chunk = call_tushare_with_retry(
+            pro.index_dailybasic,
+            f'获取 PE 数据({chunk_start}~{chunk_end})',
+            retry_config,
             ts_code='000300.SH',
             start_date=chunk_start,
             end_date=chunk_end,
             fields='trade_date,pe_ttm'
         )
-        df_price_chunk = pro.index_daily(
+        if df_pe_chunk is not None and len(df_pe_chunk) > 0:
+            pe_frames.append(df_pe_chunk)
+
+        df_price_chunk = call_tushare_with_retry(
+            pro.index_daily,
+            f'获取价格数据({chunk_start}~{chunk_end})',
+            retry_config,
             ts_code='000300.SH',
             start_date=chunk_start,
             end_date=chunk_end,
             fields='trade_date,close'
         )
-        if df_pe_chunk is not None and len(df_pe_chunk) > 0:
-            pe_frames.append(df_pe_chunk)
         if df_price_chunk is not None and len(df_price_chunk) > 0:
             price_frames.append(df_price_chunk)
+
+        time.sleep(retry_config['chunk_sleep_seconds'])
 
     if not pe_frames or not price_frames:
         return None
@@ -238,16 +278,21 @@ def get_hs300_data(start_date='20100101', end_date=None):
     return df
 
 
-def get_index_close(ts_code, start_date='20100101', end_date=None):
+def get_index_close(ts_code, start_date='20100101', end_date=None, retry_config=None):
     """
     分段获取指定指数的日度收盘价。
     """
     if end_date is None:
         end_date = datetime.now().strftime('%Y%m%d')
+    if retry_config is None:
+        retry_config = {'max_attempts': 3, 'sleep_seconds': 2.0, 'chunk_sleep_seconds': 1.0}
 
     frames = []
     for chunk_start, chunk_end in daterange_chunks(start_date, end_date, chunk_days=365):
-        df_chunk = pro.index_daily(
+        df_chunk = call_tushare_with_retry(
+            pro.index_daily,
+            f'获取 {ts_code} ({chunk_start}~{chunk_end})',
+            retry_config,
             ts_code=ts_code,
             start_date=chunk_start,
             end_date=chunk_end,
@@ -255,6 +300,7 @@ def get_index_close(ts_code, start_date='20100101', end_date=None):
         )
         if df_chunk is not None and len(df_chunk) > 0:
             frames.append(df_chunk)
+        time.sleep(retry_config['chunk_sleep_seconds'])
 
     if not frames:
         return None
@@ -348,7 +394,7 @@ def prepare_value_dimension_data(end_date, config):
     准备价值维度原始数据。
     """
     value_start = config['data']['value_history_start']
-    df_hs300 = get_hs300_data(value_start, end_date)
+    df_hs300 = get_hs300_data(value_start, end_date, config.get('retry'))
     df_bond = get_bond_yield(value_start, end_date)
     if df_hs300 is None or df_bond is None or len(df_hs300) == 0 or len(df_bond) == 0:
         raise ValueError('价值维度数据获取失败')
@@ -377,20 +423,28 @@ def build_value_dimension_series(df_value, start_date, end_date, config):
     return df[(df['trade_date'] >= start_ts) & (df['trade_date'] <= end_ts)].copy()
 
 
-def get_market_turnover(start_date='20100101', end_date=None):
+def get_market_turnover(start_date='20100101', end_date=None, retry_config=None):
     """
     获取两市日度成交额。
     """
     if end_date is None:
         end_date = datetime.now().strftime('%Y%m%d')
+    if retry_config is None:
+        retry_config = {'max_attempts': 3, 'sleep_seconds': 2.0, 'chunk_sleep_seconds': 1.0}
 
-    df_sh = pro.index_daily(
+    df_sh = call_tushare_with_retry(
+        pro.index_daily,
+        '获取上证成交额',
+        retry_config,
         ts_code='000001.SH',
         start_date=start_date,
         end_date=end_date,
         fields='trade_date,amount'
     )
-    df_sz = pro.index_daily(
+    df_sz = call_tushare_with_retry(
+        pro.index_daily,
+        '获取深证成交额',
+        retry_config,
         ts_code='399001.SZ',
         start_date=start_date,
         end_date=end_date,
@@ -580,7 +634,7 @@ def prepare_emotion_dimension_data(start_date, end_date, config):
         config['data']['history_buffer_years'],
         config['data']['emotion_min_history_start']
     )
-    df_turnover = get_market_turnover(history_start, end_date)
+    df_turnover = get_market_turnover(history_start, end_date, config.get('retry'))
     df_turnover_rate = get_market_turnover_rate_monthly()
     if df_turnover is None or df_turnover_rate is None:
         raise ValueError('情绪维度基础数据获取失败')
@@ -739,8 +793,8 @@ def build_temperature_timeseries(
     """
     构建综合市场温度与价值锚定温度的日度时间序列。
     """
-    hs300_df = get_index_close('000300.SH', start_date, end_date)
-    cyb_df = get_index_close('399006.SZ', start_date, end_date)
+    hs300_df = get_index_close('000300.SH', start_date, end_date, config.get('retry'))
+    cyb_df = get_index_close('399006.SZ', start_date, end_date, config.get('retry'))
     if hs300_df is None or len(hs300_df) == 0:
         raise ValueError('沪深300指数数据获取失败，无法构建时间序列')
 

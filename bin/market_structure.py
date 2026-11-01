@@ -42,7 +42,7 @@ DEFAULT_CONFIG = {
     },
     'retry': {
         'max_attempts': 3,
-        'sleep_seconds': 1.5,
+        'sleep_seconds': 2.0,
     },
     'logging': {
         'level': 'INFO',
@@ -235,9 +235,14 @@ def call_tushare_with_retry(func, logger, action_name, max_attempts, sleep_secon
             return func(**kwargs)
         except Exception as error:
             last_error = error
-            logger.warning(f'{action_name} 失败，第 {attempt}/{max_attempts} 次重试: {error}')
             if attempt < max_attempts:
+                logger.warning(
+                    f'{action_name} 失败，第 {attempt}/{max_attempts} 次重试: {error}；'
+                    f'暂停 {sleep_seconds:.1f} 秒后继续'
+                )
                 time.sleep(sleep_seconds)
+            else:
+                logger.warning(f'{action_name} 失败，第 {attempt}/{max_attempts} 次重试: {error}')
     raise RuntimeError(f'{action_name} 最终失败: {last_error}') from last_error
 
 

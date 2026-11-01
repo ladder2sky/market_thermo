@@ -8,10 +8,10 @@ start_date = "20200101"
 analyse_date = "20260722"
 
 # RPS 计算窗口，单位为交易日。
-lookback_days = 20
+lookback_days = 60
 
 # 拥挤度历史分位窗口，单位为交易日。
-crowded_window = 120
+crowded_window = 756
 
 # 历史样本少于该值时，拥挤度退回简化估算。
 min_history_for_percentile = 20
@@ -40,10 +40,10 @@ json_filename = "市场结构分析结果.json"
 
 [retry]
 # Tushare 接口失败时的最大重试次数。
-max_attempts = 3
+max_attempts = 5
 
 # 每次重试前的等待秒数。
-sleep_seconds = 1.5
+sleep_seconds = 30
 
 [logging]
 # 日志级别，可选 INFO / DEBUG。
