@@ -312,10 +312,48 @@ def get_index_close(ts_code, start_date='20100101', end_date=None, retry_config=
     return df
 
 
-def get_bond_yield(start_date='20100101', end_date=None):
+def fetch_bond_yield_from_akshare(start_date, end_date):
     """
-    获取中国 10 年期国债收益率。
-    为避免综合脚本被外部接口长时间阻塞，这里直接使用项目内置锚点插值口径。
+    从 AKShare 中债国债收益率曲线获取 10 年期收益率日度数据。
+    """
+    frames = []
+    current_start = pd.to_datetime(start_date)
+    end_dt = pd.to_datetime(end_date)
+    while current_start <= end_dt:
+        current_end = min(current_start + pd.DateOffset(days=364), end_dt)
+        chunk = ak.bond_china_yield(
+            start_date=current_start.strftime('%Y%m%d'),
+            end_date=current_end.strftime('%Y%m%d')
+        )
+        if chunk is not None and not chunk.empty:
+            frames.append(chunk)
+        current_start = current_end + pd.Timedelta(days=1)
+
+    if not frames:
+        return None
+
+    df = pd.concat(frames, ignore_index=True).drop_duplicates().reset_index(drop=True)
+    curve_col = df.columns[0]
+    date_col = df.columns[1]
+    ten_year_col = next((column for column in df.columns if '10年' in str(column)), None)
+    if ten_year_col is None:
+        return None
+
+    df = df[df[curve_col].astype(str) == '中债国债收益率曲线'].copy()
+    if df.empty:
+        return None
+
+    df = df[[date_col, ten_year_col]].rename(columns={date_col: 'trade_date', ten_year_col: 'yield_10y'})
+    df['trade_date'] = pd.to_datetime(df['trade_date'])
+    df['yield_10y'] = pd.to_numeric(df['yield_10y'], errors='coerce')
+    df = df.dropna(subset=['yield_10y'])
+    df = df.sort_values('trade_date').drop_duplicates(subset=['trade_date']).reset_index(drop=True)
+    return df if not df.empty else None
+
+
+def build_bond_yield_anchors(start_date='20100101', end_date=None):
+    """
+    内置锚点插值口径的 10 年期国债收益率，作为 AKShare 不可用时的兜底。
     """
     if end_date is None:
         end_date = datetime.now().strftime('%Y%m%d')
@@ -349,6 +387,36 @@ def get_bond_yield(start_date='20100101', end_date=None):
     start_dt = pd.to_datetime(start_date)
     end_dt = pd.to_datetime(end_date)
     return df_china[(df_china['trade_date'] >= start_dt) & (df_china['trade_date'] <= end_dt)].copy()
+
+
+def get_bond_yield(start_date='20100101', end_date=None):
+    """
+    获取中国 10 年期国债收益率。
+    优先使用 AKShare 中债国债收益率曲线；接口不可用时回退到内置锚点插值。
+    """
+    if end_date is None:
+        end_date = datetime.now().strftime('%Y%m%d')
+
+    df = None
+    try:
+        df = fetch_bond_yield_from_akshare(start_date, end_date)
+    except Exception as error:
+        print(f'AKShare 获取 10 年期国债收益率失败: {error}')
+
+    if df is not None and len(df) > 0:
+        print(f'10 年期国债收益率数据源: AKShare（{len(df)} 条）')
+    else:
+        print('10 年期国债收益率回退到内置锚点插值口径')
+        df = build_bond_yield_anchors(start_date, end_date)
+
+    coverage_end = df['trade_date'].max()
+    end_dt = pd.to_datetime(end_date)
+    if coverage_end < end_dt:
+        print(
+            f'警告: 10 年期国债收益率仅覆盖至 {coverage_end:%Y-%m-%d}，'
+            f'{end_dt:%Y-%m-%d} 之后的价值维度分位会沿用前值，估值结论不可靠'
+        )
+    return df
 
 
 def compute_value_score(df_value, current_date, config):
